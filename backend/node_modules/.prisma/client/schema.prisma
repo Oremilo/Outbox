@@ -1,0 +1,91 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Sender ──────────────────────────────────────────────
+// Represents an Ethereal email account used to send emails.
+model Sender {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  smtpHost  String   @default("smtp.ethereal.email")
+  smtpPort  Int      @default(587)
+  smtpUser  String
+  smtpPass  String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  emails Email[]
+
+  @@map("senders")
+}
+
+// ── Campaign ────────────────────────────────────────────
+// A batch send request: one subject/body sent to many recipients.
+model Campaign {
+  id              String         @id @default(uuid())
+  subject         String
+  body            String
+  createdBy       String?        @map("created_by") // Google OAuth email
+  startTime       DateTime       @map("start_time")
+  delayMs         Int            @default(0) @map("delay_ms")
+  hourlyLimit     Int?           @map("hourly_limit")
+  totalRecipients Int            @map("total_recipients")
+  status          CampaignStatus @default(PENDING)
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  emails Email[]
+
+  @@map("campaigns")
+}
+
+// ── Email ───────────────────────────────────────────────
+// One email to one recipient within a campaign.
+// bullmqJobId is deterministic: "email-{id}" for idempotency.
+model Email {
+  id             String      @id @default(uuid())
+  campaignId     String      @map("campaign_id")
+  senderId       String      @map("sender_id")
+  recipientEmail String      @map("recipient_email")
+  subject        String
+  body           String
+  status         EmailStatus @default(PENDING)
+  scheduledTime  DateTime    @map("scheduled_time")
+  sentTime       DateTime?   @map("sent_time")
+  bullmqJobId    String?     @unique @map("bullmq_job_id")
+  attemptCount   Int         @default(0) @map("attempt_count")
+  errorMessage   String?     @map("error_message")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  sender   Sender   @relation(fields: [senderId], references: [id])
+
+  @@index([status])
+  @@index([campaignId])
+  @@index([senderId])
+  @@index([scheduledTime])
+  @@map("emails")
+}
+
+// ── Enums ───────────────────────────────────────────────
+
+enum EmailStatus {
+  PENDING
+  SCHEDULED
+  SENDING
+  SENT
+  FAILED
+}
+
+enum CampaignStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
