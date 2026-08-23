@@ -78,14 +78,16 @@ async function checkRateLimit(
  * Check both global and per-sender rate limits.
  * Both must pass for the email to be sent.
  */
-export async function checkEmailRateLimit(senderId: string): Promise<{
+export async function checkEmailRateLimit(senderId: string, campaignHourlyLimit?: number | null): Promise<{
   allowed: boolean;
   globalResult: RateLimitResult;
   senderResult: RateLimitResult;
   nextWindowStart: Date | null;
 }> {
   const globalResult = await checkRateLimit('global', config.MAX_EMAILS_PER_HOUR);
-  const senderResult = await checkRateLimit(`sender-${senderId}`, config.MAX_EMAILS_PER_HOUR_PER_SENDER);
+  
+  const limitToUse = campaignHourlyLimit ?? config.MAX_EMAILS_PER_HOUR_PER_SENDER;
+  const senderResult = await checkRateLimit(`sender-${senderId}`, limitToUse);
 
   const allowed = globalResult.allowed && senderResult.allowed;
 
@@ -101,18 +103,7 @@ export async function checkEmailRateLimit(senderId: string): Promise<{
   return { allowed, globalResult, senderResult, nextWindowStart };
 }
 
-/**
- * Decrement the rate limit counter (used when a job is rescheduled, not actually sent).
- * This "undoes" the INCR that happened during the check.
- */
-export async function decrementRateLimit(senderId: string): Promise<void> {
-  const hw = getHourWindow();
-  const globalKey = makeRateLimitKey('global', hw);
-  const senderKey = makeRateLimitKey(`sender-${senderId}`, hw);
 
-  await redis.decr(globalKey);
-  await redis.decr(senderKey);
-}
 
 /**
  * Get current rate limit status (for monitoring/debugging).

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, useEffect } from "react";
 
 interface CSVUploaderProps {
   onEmailsParsed: (emails: string[]) => void;
@@ -12,26 +12,51 @@ export default function CSVUploader({ onEmailsParsed, emails }: CSVUploaderProps
   const [isDragging, setIsDragging] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
+  
+  const [csvEmails, setCsvEmails] = useState<string[]>([]);
+  const [manualText, setManualText] = useState("");
+
+  // Sync with parent resets
+  useEffect(() => {
+    if (emails.length === 0) {
+      setCsvEmails([]);
+      setManualText("");
+      setFileName(null);
+      setParseError(null);
+    }
+  }, [emails.length]);
+
+  const mergeAndReport = useCallback((csvList: string[], manualStr: string) => {
+    // If both a file and manual emails are provided, we combine both and deduplicate.
+    // This ensures users can upload a base list and quickly append a few test emails.
+    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+    const matches = manualStr.match(emailRegex) || [];
+    const combined = [...csvList, ...matches];
+    const unique = [...new Set(combined.map((e) => e.toLowerCase()))];
+    onEmailsParsed(unique);
+  }, [onEmailsParsed]);
 
   const parseEmails = useCallback(
     (text: string) => {
       setParseError(null);
 
       // Try to extract emails from CSV/text content
-      // Supports: one email per line, comma-separated, or CSV with email column
       const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
       const matches = text.match(emailRegex);
 
       if (!matches || matches.length === 0) {
         setParseError("No valid email addresses found in the file");
+        setCsvEmails([]);
+        mergeAndReport([], manualText);
         return;
       }
 
       // Deduplicate and lowercase
       const uniqueEmails = [...new Set(matches.map((e) => e.toLowerCase()))];
-      onEmailsParsed(uniqueEmails);
+      setCsvEmails(uniqueEmails);
+      mergeAndReport(uniqueEmails, manualText);
     },
-    [onEmailsParsed]
+    [manualText, mergeAndReport]
   );
 
   const handleFile = useCallback(
@@ -100,6 +125,8 @@ export default function CSVUploader({ onEmailsParsed, emails }: CSVUploaderProps
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) handleFile(file);
+            // Reset input so the same file can be selected again
+            e.target.value = "";
           }}
           className="hidden"
         />
@@ -142,6 +169,8 @@ export default function CSVUploader({ onEmailsParsed, emails }: CSVUploaderProps
             onClick={(e) => {
               e.stopPropagation();
               onEmailsParsed([]);
+              setCsvEmails([]);
+              setManualText("");
               setFileName(null);
             }}
             className="ml-auto text-xs text-slate-500 hover:text-red-400 transition-colors cursor-pointer"
@@ -164,18 +193,11 @@ export default function CSVUploader({ onEmailsParsed, emails }: CSVUploaderProps
       {/* Manual text input for emails */}
       <textarea
         placeholder="email1@example.com, email2@example.com, ..."
-        value={emails.join(", ")}
+        value={manualText}
         onChange={(e) => {
           const text = e.target.value;
-          if (text.trim() === "") {
-            onEmailsParsed([]);
-            return;
-          }
-          const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-          const matches = text.match(emailRegex);
-          if (matches) {
-            onEmailsParsed([...new Set(matches.map((e) => e.toLowerCase()))]);
-          }
+          setManualText(text);
+          mergeAndReport(csvEmails, text);
         }}
         rows={3}
         className="mt-2 w-full px-4 py-2.5 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all duration-200 text-sm resize-y"

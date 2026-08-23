@@ -3,7 +3,7 @@ import { redisConnection } from './redis';
 import { QUEUE_NAME, emailQueue, makeJobId } from './queue';
 import { prisma } from './prisma';
 import { sendEmail } from './email-sender';
-import { checkEmailRateLimit, decrementRateLimit } from './rate-limiter';
+import { checkEmailRateLimit } from './rate-limiter';
 import { config } from '../config';
 
 /**
@@ -34,6 +34,7 @@ async function processEmailJob(job: Job<{ emailId: string }>): Promise<void> {
   // 1. Fetch email from DB
   const email = await prisma.email.findUnique({
     where: { id: emailId },
+    include: { campaign: true },
   });
 
   if (!email) {
@@ -48,20 +49,15 @@ async function processEmailJob(job: Job<{ emailId: string }>): Promise<void> {
   }
 
   // 3. Check rate limits
-  const rateLimitCheck = await checkEmailRateLimit(email.senderId);
+  const rateLimitCheck = await checkEmailRateLimit(email.senderId, email.campaign.hourlyLimit);
 
   if (!rateLimitCheck.allowed) {
-    // Undo the rate limit counter increment (since we're not actually sending)
-    await decrementRateLimit(email.senderId);
-
     // Reschedule to next hour window
     const nextWindow = rateLimitCheck.nextWindowStart!;
     const delay = Math.max(0, nextWindow.getTime() - Date.now());
 
     console.log(
-      `${logPrefix} Rate limited (global: ${rateLimitCheck.globalResult.currentCount}/${rateLimitCheck.globalResult.limit}, ` +
-      `sender: ${rateLimitCheck.senderResult.currentCount}/${rateLimitCheck.senderResult.limit}). ` +
-      `Rescheduling to ${nextWindow.toISOString()} (delay=${delay}ms)`
+      `[RateLimiter] Limit reached for sender ${email.senderId}, rescheduling job ${job.id} to ${nextWindow.toISOString()}`
     );
 
     // Update scheduled time in DB
