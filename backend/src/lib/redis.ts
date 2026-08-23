@@ -17,7 +17,10 @@ redis.on('connect', () => {
 });
 
 // Connection config object for BullMQ (it needs to create its own connections)
+const redisUrl = new URL(config.REDIS_URL);
 export const redisConnection = {
-  host: new URL(config.REDIS_URL).hostname || 'localhost',
-  port: parseInt(new URL(config.REDIS_URL).port || '6379', 10),
+  host: redisUrl.hostname || 'localhost',
+  port: parseInt(redisUrl.port || '6379', 10),
+  password: redisUrl.password || undefined,
+  username: redisUrl.username || undefined,
 };
